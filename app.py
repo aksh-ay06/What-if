@@ -67,7 +67,12 @@ st.divider()
 def load_data():
     return pd.read_csv(ROOT / "data" / "lifestyle_data.csv")
 
+@st.cache_resource
+def cached_dag():
+    return build_dag()
+
 data = load_data()
+G = cached_dag()
 
 # ---------------------------------------------------------------------------
 # Sidebar — Lifestyle Input Form
@@ -119,14 +124,19 @@ with col_left:
 with col_right:
     st.header("📊 Estimated Causal Effects")
 
+    @st.cache_data
+    def cached_whatif(_treatment, _profile_tuple, _delta, _data):
+        return estimate_whatif_all_outcomes(
+            treatment=_treatment,
+            user_profile=dict(_profile_tuple),
+            delta=_delta,
+            data=_data,
+        )
+
     if delta != 0:
         with st.spinner("Running causal inference…"):
-            results = estimate_whatif_all_outcomes(
-                treatment=treatment,
-                user_profile=user_profile,
-                delta=delta,
-                data=data,
-            )
+            profile_tuple = tuple(sorted(user_profile.items()))
+            results = cached_whatif(treatment, profile_tuple, delta, data)
 
         # Metric cards
         metric_cols = st.columns(len(results))
@@ -156,8 +166,6 @@ st.markdown(
     "Arrows show the direction of causal influence. The highlighted path (if any) "
     "shows the treatment → outcome chain you are currently exploring."
 )
-
-G = build_dag()
 
 # Build highlight edges from treatment through mediators to all outcomes
 highlight_nodes = {treatment}
