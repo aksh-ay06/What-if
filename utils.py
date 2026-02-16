@@ -30,7 +30,6 @@ SLIDER_RANGES = {
     "diet_quality": (1.0, 10.0, 5.0, 0.5),
     "screen_time":  (0.0, 16.0, 4.0, 0.5),
     "caffeine":     (0.0, 8.0, 2.0, 0.5),
-    "stress":       (1.0, 10.0, 5.0, 0.5),
 }
 
 DELTA_RANGES = {

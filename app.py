@@ -141,7 +141,7 @@ with col_right:
 
         # Bar chart
         fig = whatif_bar_chart(results)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     else:
         st.info("👈 Set a non-zero intervention to see predicted effects.")
 
@@ -172,7 +172,7 @@ for outcome in OUTCOMES:
         pass
 
 fig_dag = plot_dag(G, highlight_nodes=highlight_nodes, highlight_edges=highlight_edges)
-st.plotly_chart(fig_dag, use_container_width=True)
+st.plotly_chart(fig_dag, width="stretch")
 
 # Legend
 leg_cols = st.columns(4)
@@ -230,14 +230,15 @@ def compute_ate_table(_data: pd.DataFrame) -> pd.DataFrame:
     for t in TREATMENTS:
         row = {"Habit": label(t)}
         for o in OUTCOMES:
-            ate = estimate_ate(t, o, _data)
+            ate = estimate_ate(t, o, _data, full=False)
             row[label(o)] = f'{ate["estimate"]:+.3f}'
         ate_data.append(row)
     return pd.DataFrame(ate_data)
 
-with st.spinner("Computing ATEs…"):
-    ate_df = compute_ate_table(data)
-st.dataframe(ate_df, use_container_width=True, hide_index=True)
+with st.expander("Show ATE Table", expanded=False):
+    with st.spinner("Computing ATEs…"):
+        ate_df = compute_ate_table(data)
+    st.dataframe(ate_df, width="stretch", hide_index=True)
 
 # ---------------------------------------------------------------------------
 # Footer

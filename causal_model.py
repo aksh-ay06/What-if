@@ -49,7 +49,12 @@ def _cached_gml() -> str:
 
 
 def _common_causes(treatment: str) -> dict[str, list[str]]:
-    """Return confounders (W) and effect modifiers (X) for a given treatment."""
+    """Return confounders (W) and effect modifiers (X) for a given treatment.
+
+    W = variables that confound the treatment-outcome relationship (controls).
+    X = variables that modify the treatment effect (heterogeneity sources).
+    These are used by EconML's LinearDML; DoWhy uses the graph structure instead.
+    """
     config = {
         "sleep":        {"W": ["screen_time", "caffeine", "stress", "work_hours"], "X": ["age"]},
         "exercise":     {"W": ["work_hours"],                                      "X": ["age"]},
@@ -68,10 +73,17 @@ def estimate_ate(
     treatment: str,
     outcome: str,
     data: pd.DataFrame | None = None,
+    full: bool = True,
 ) -> dict:
     """
     Estimate the Average Treatment Effect of `treatment` on `outcome`
     using DoWhy's backdoor linear regression estimator.
+
+    Parameters
+    ----------
+    full : bool
+        If True, compute confidence intervals and p-values (slower).
+        If False, return only the point estimate (fast path for tables).
 
     Returns dict with keys: estimate, p_value, ci_low, ci_high, method.
     """
@@ -92,29 +104,29 @@ def estimate_ate(
     estimate = model.estimate_effect(
         identified,
         method_name="backdoor.linear_regression",
-        confidence_intervals=True,
-        test_significance=True,
+        confidence_intervals=full,
+        test_significance=full,
     )
 
-    # Extract results
     ate_value = estimate.value
-    ci = estimate.get_confidence_intervals()
-    p_val = estimate.test_stat_significance()
+    ci_low, ci_high, p_val = None, None, None
 
-    # Handle different return formats
-    ci_low, ci_high = None, None
-    if isinstance(ci, np.ndarray):
-        if ci.ndim == 2:
-            ci_low, ci_high = float(ci[0][0]), float(ci[0][1])
-        else:
+    if full:
+        ci = estimate.get_confidence_intervals()
+        p_val = estimate.test_stat_significance()
+
+        if isinstance(ci, np.ndarray):
+            if ci.ndim == 2:
+                ci_low, ci_high = float(ci[0][0]), float(ci[0][1])
+            else:
+                ci_low, ci_high = float(ci[0]), float(ci[1])
+        elif isinstance(ci, (list, tuple)):
             ci_low, ci_high = float(ci[0]), float(ci[1])
-    elif isinstance(ci, (list, tuple)):
-        ci_low, ci_high = float(ci[0]), float(ci[1])
 
-    if isinstance(p_val, dict):
-        p_val = list(p_val.values())[0]
-    if isinstance(p_val, (np.ndarray,)):
-        p_val = float(p_val.flat[0])
+        if isinstance(p_val, dict):
+            p_val = list(p_val.values())[0]
+        if isinstance(p_val, (np.ndarray,)):
+            p_val = float(p_val.flat[0])
 
     return {
         "estimate": float(ate_value),
@@ -297,11 +309,12 @@ def estimate_whatif(
         cate_per_unit = dml.effect(user_x, T0=0, T1=1)
         cate_value = float(cate_per_unit.flat[0]) * delta
 
-        # Confidence intervals
+        # Confidence intervals — swap bounds when delta < 0 to keep low < high
         try:
             ci = dml.effect_interval(user_x, T0=0, T1=1, alpha=0.05)
-            ci_low = float(ci[0].flat[0]) * delta
-            ci_high = float(ci[1].flat[0]) * delta
+            bound_a = float(ci[0].flat[0]) * delta
+            bound_b = float(ci[1].flat[0]) * delta
+            ci_low, ci_high = min(bound_a, bound_b), max(bound_a, bound_b)
         except Exception:
             ci_low, ci_high = None, None
 
@@ -309,8 +322,12 @@ def estimate_whatif(
         logger.warning("LinearDML failed for %s → %s: %s. Falling back to ATE.", treatment, outcome, e)
         ate = estimate_ate(treatment, outcome, data)
         cate_value = ate["estimate"] * delta
-        ci_low = ate["ci_low"] * delta if ate["ci_low"] is not None else None
-        ci_high = ate["ci_high"] * delta if ate["ci_high"] is not None else None
+        if ate["ci_low"] is not None and ate["ci_high"] is not None:
+            bound_a = ate["ci_low"] * delta
+            bound_b = ate["ci_high"] * delta
+            ci_low, ci_high = min(bound_a, bound_b), max(bound_a, bound_b)
+        else:
+            ci_low, ci_high = None, None
 
     return {
         "treatment": treatment,
